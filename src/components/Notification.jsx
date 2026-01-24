@@ -13,26 +13,42 @@ const Notification = ({
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
 
-  // ✅ Helper function to apply role-based filtering
+  // ✅ FIXED: Proper role-based filtering using account_id
 const applyRoleFilter = useCallback((query) => {
+  // 👤 CUSTOMER
   if (userRole === 'customer') {
-    return query.eq('account_id', accountId);
-  } else if (userRole === 'manager') {
-    return query.ilike('message', '%reject%'); // Notifications about rejections
-  } else if (userRole === 'frontdesk') {
-    return query.ilike('message', '%reject%'); // Notifications about rejections din
+    return query
+      .eq('account_id', accountId)
+      .or('message.ilike.%rejected%,message.ilike.%reject%,message.ilike.%approved%')
+      .not('message', 'ilike', '%reschedule pending%'); 
   }
-  return query; // Admin/Superadmin - walang filter, kuha lahat
+
+  // 🧑‍💼 MANAGER / FRONTDESK
+  if (userRole === 'manager' || userRole === 'frontdesk') {
+    return query
+      .or('message.ilike.%reschedule%,message.ilike.%new reservation%')
+      .not('message', 'ilike', '%approved%')
+      .not('message', 'ilike', '%reject%')
+      .not('message', 'ilike', '%rejected%');
+  }
+
+  // 👑 ADMIN / SUPERADMIN
+  return query;
+
 }, [userRole, accountId]);
+
+
+
+
   const fetchNotifications = useCallback(async () => {
     if (!accountId) {
       console.log('No account ID provided');
       return;
     }
-    
+
     console.log('Fetching notifications for account_id:', accountId, 'role:', userRole);
     setLoading(true);
-    
+
     try {
       let query = supabase
         .from('notification')
@@ -53,7 +69,7 @@ const applyRoleFilter = useCallback((query) => {
         console.error('Supabase error:', error);
         throw error;
       }
-      
+
       console.log('Fetched notifications:', data);
       setNotifications(data || []);
     } catch (error) {
@@ -79,10 +95,10 @@ const applyRoleFilter = useCallback((query) => {
       if (error) throw error;
 
       // ✅ Optimistic update
-      setNotifications(prev => 
+      setNotifications(prev =>
         prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n)
       );
-      
+
       setSelectedNotification({ ...notification, is_read: true });
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -133,17 +149,32 @@ const applyRoleFilter = useCallback((query) => {
 
   const getActivityType = (message) => {
     const lower = message?.toLowerCase() || '';
+
+    // ✅ Check for reschedule-related keywords
+    if (lower.includes('requester') && lower.includes('rescheduled')) return 'reschedule';
+    if (lower.includes('reschedule') && lower.includes('approved')) return 'approval';
+    if (lower.includes('reschedule') && lower.includes('rejected')) return 'rejection';
+    if (lower.includes('reschedule')) return 'reschedule';
+
+    if (lower.includes('new reservation')) return 'new_reservation';
     if (lower.includes('extension')) return 'extension';
+    if (lower.includes('reject')) return 'rejection';
+    if (lower.includes('approved') || lower.includes('approval')) return 'approval';
     if (lower.includes('status')) return 'status_change';
     if (lower.includes('payment')) return 'payment';
     if (lower.includes('check in')) return 'check_in';
     if (lower.includes('check out')) return 'check_out';
     if (lower.includes('reservation')) return 'status_change';
+
     return 'payment';
   };
 
   const getActivityIcon = (activityType) => {
     const iconMap = {
+      new_reservation: "🆕",
+      reschedule: "🔄",
+      rejection: "❌",
+      approval: "✅",
       extension: "⏱️",
       status_change: "📋",
       payment: "₱",
@@ -166,7 +197,7 @@ const applyRoleFilter = useCallback((query) => {
 
       {/* Main Notification Panel */}
       {!selectedNotification ? (
-        <div 
+        <div
           className="fixed right-6 top-20 w-full max-w-md bg-white/95 backdrop-blur-xl border border-blue-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-fadeIn max-h-[600px] flex flex-col"
           role="dialog"
           aria-label="Notifications"
@@ -179,7 +210,8 @@ const applyRoleFilter = useCallback((query) => {
               Notifications
               {userRole !== 'customer' && (
                 <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                  {userRole === 'manager' ? 'Rejected' : 'All'}
+                  {userRole === 'manager' ? 'Manager' :
+                    userRole === 'frontdesk' ? 'Front Desk' : 'All'}
                 </span>
               )}
             </h3>
@@ -203,11 +235,10 @@ const applyRoleFilter = useCallback((query) => {
           <div className="flex items-center gap-2 px-5 py-3 bg-white border-b border-gray-100" role="tablist">
             <button
               onClick={() => setShowUnreadOnly(false)}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                !showUnreadOnly
-                  ? 'bg-blue-500 text-white shadow-md'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${!showUnreadOnly
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
               role="tab"
               aria-selected={!showUnreadOnly}
             >
@@ -215,15 +246,14 @@ const applyRoleFilter = useCallback((query) => {
             </button>
             <button
               onClick={() => setShowUnreadOnly(true)}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all relative ${
-                showUnreadOnly
-                  ? 'bg-blue-500 text-white shadow-md'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all relative ${showUnreadOnly
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
               role="tab"
               aria-selected={showUnreadOnly}
             >
-              Unread 
+              Unread
               {unreadCount > 0 && (
                 <span className="ml-1.5 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full font-bold">
                   {unreadCount}
@@ -254,16 +284,15 @@ const applyRoleFilter = useCallback((query) => {
                 {notifications.map((note, index) => {
                   const activityType = getActivityType(note.message);
                   const isUnread = !note.is_read;
-                  
+
                   return (
                     <div
                       key={note.id}
                       onClick={() => handleNotificationClick(note)}
-                      className={`px-4 py-4 hover:bg-blue-50 cursor-pointer transition-all duration-200 group relative border-l-4 ${
-                        isUnread 
-                          ? 'bg-gradient-to-r from-blue-50 to-white border-l-blue-500 shadow-sm' 
-                          : 'bg-white border-l-transparent'
-                      }`}
+                      className={`px-4 py-4 hover:bg-blue-50 cursor-pointer transition-all duration-200 group relative border-l-4 ${isUnread
+                        ? 'bg-gradient-to-r from-blue-50 to-white border-l-blue-500 shadow-sm'
+                        : 'bg-white border-l-transparent'
+                        }`}
                       style={{ animationDelay: `${index * 50}ms` }}
                       role="listitem"
                       tabIndex={0}
@@ -288,11 +317,10 @@ const applyRoleFilter = useCallback((query) => {
 
                       <div className="flex items-start gap-3">
                         {/* Icon */}
-                        <div className={`flex items-center justify-center flex-shrink-0 w-11 h-11 transition-transform duration-200 rounded-full shadow-md group-hover:scale-110 ${
-                          isUnread 
-                            ? 'bg-gradient-to-br from-blue-600 to-blue-700 ring-4 ring-blue-100' 
-                            : 'bg-gradient-to-br from-gray-400 to-gray-500'
-                        }`}>
+                        <div className={`flex items-center justify-center flex-shrink-0 w-11 h-11 transition-transform duration-200 rounded-full shadow-md group-hover:scale-110 ${isUnread
+                          ? 'bg-gradient-to-br from-blue-600 to-blue-700 ring-4 ring-blue-100'
+                          : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                          }`}>
                           <span className="text-base font-bold text-white" aria-hidden="true">
                             {getActivityIcon(activityType)}
                           </span>
@@ -300,34 +328,30 @@ const applyRoleFilter = useCallback((query) => {
 
                         {/* Content */}
                         <div className="flex-1 min-w-0 pr-6">
-                          <p className={`text-sm leading-relaxed ${
-                            isUnread ? 'font-bold text-gray-900' : 'font-normal text-gray-600'
-                          }`}>
+                          <p className={`text-sm leading-relaxed ${isUnread ? 'font-bold text-gray-900' : 'font-normal text-gray-600'
+                            }`}>
                             {note.message}
                           </p>
 
                           {note.reservation_no && (
                             <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                isUnread 
-                                  ? 'bg-blue-600 text-white shadow-sm' 
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}>
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${isUnread
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-blue-100 text-blue-700'
+                                }`}>
                                 📋 {note.reservation_no}
                               </span>
                             </div>
                           )}
 
                           <div className="flex items-center gap-2 mt-2">
-                            <p className={`text-xs font-semibold ${
-                              isUnread ? 'text-blue-600' : 'text-blue-500'
-                            }`}>
+                            <p className={`text-xs font-semibold ${isUnread ? 'text-blue-600' : 'text-blue-500'
+                              }`}>
                               {getTimeAgo(note.created_at)}
                             </p>
                             <span className="text-xs text-gray-400">•</span>
-                            <span className={`text-xs capitalize ${
-                              isUnread ? 'text-gray-700 font-medium' : 'text-gray-500'
-                            }`}>
+                            <span className={`text-xs capitalize ${isUnread ? 'text-gray-700 font-medium' : 'text-gray-500'
+                              }`}>
                               {activityType.replace("_", " ")}
                             </span>
                           </div>
@@ -344,9 +368,8 @@ const applyRoleFilter = useCallback((query) => {
 
                         {/* Arrow indicator */}
                         <div className="flex-shrink-0 mt-2">
-                          <svg className={`w-5 h-5 transition-colors ${
-                            isUnread ? 'text-blue-500' : 'text-gray-400 group-hover:text-blue-500'
-                          }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                          <svg className={`w-5 h-5 transition-colors ${isUnread ? 'text-blue-500' : 'text-gray-400 group-hover:text-blue-500'
+                            }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                         </div>
@@ -372,13 +395,12 @@ const applyRoleFilter = useCallback((query) => {
         </div>
       ) : (
         /* Detail Modal */
-        <div 
+        <div
           className="fixed right-6 top-20 w-full max-w-md bg-white/95 backdrop-blur-xl border border-blue-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-fadeIn max-h-[600px] flex flex-col"
           role="dialog"
           aria-label="Notification details"
           aria-modal="true"
         >
-          {/* Detail Header */}
           <div className="flex items-center justify-between flex-shrink-0 px-5 py-4 bg-gradient-to-r from-blue-500 to-blue-600">
             <button
               onClick={handleCloseDetail}
@@ -397,16 +419,13 @@ const applyRoleFilter = useCallback((query) => {
             </button>
           </div>
 
-          {/* Detail Content */}
           <div className="flex-1 p-6 overflow-y-auto">
-            {/* Icon */}
             <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 rounded-full shadow-lg bg-gradient-to-br from-blue-500 to-blue-600">
               <span className="text-2xl font-bold text-white" aria-hidden="true">
                 {getActivityIcon(getActivityType(selectedNotification.message))}
               </span>
             </div>
 
-            {/* Message */}
             <h3 className="mb-4 text-lg font-bold text-center text-gray-900">
               Notification Details
             </h3>
@@ -417,7 +436,6 @@ const applyRoleFilter = useCallback((query) => {
               </p>
             </div>
 
-            {/* Metadata */}
             <div className="space-y-3">
               {selectedNotification.reservation_no && (
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">

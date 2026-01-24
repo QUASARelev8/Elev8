@@ -239,73 +239,88 @@ console.log('✅ Reschedule fetch complete');
     });
   };
 
-  const handleApproveReschedule = async (rescheduleRequestId) => {
-    const result = await Swal.fire({
-      title: 'Approve Reschedule?',
-      text: 'Are you sure you want to approve this reschedule request?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonColor: '#28a745',
-      cancelButtonColor: '#6c757d',
-      confirmButtonText: 'Yes, approve it!',
-      cancelButtonText: 'Cancel'
+const handleApproveReschedule = async (rescheduleRequestId) => {
+  const result = await Swal.fire({
+    title: 'Approve Reschedule?',
+    text: 'Are you sure you want to approve this reschedule request?',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#28a745',
+    cancelButtonColor: '#6c757d',
+    confirmButtonText: 'Yes, approve it!',
+    cancelButtonText: 'Cancel'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    // 1️⃣ Get the reschedule request details
+    const { data: rescheduleRequest, error: fetchError } = await supabase
+      .from('reschedule_request')
+      .select('*')
+      .eq('id', rescheduleRequestId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // 2️⃣ Update the original reservation
+    const { error: updateError } = await supabase
+      .from('reservation')
+      .update({
+        table_id: rescheduleRequest.new_table_id,
+        reservation_date: rescheduleRequest.new_reservation_date,
+        start_time: rescheduleRequest.new_start_time,
+        time_end: rescheduleRequest.new_time_end,
+        duration: rescheduleRequest.new_duration,
+        billiard_type: rescheduleRequest.new_billiard_type,
+        total_bill: rescheduleRequest.new_total_bill,
+        status: 'approved'
+      })
+      .eq('id', rescheduleRequest.reservation_id);
+
+    if (updateError) throw updateError;
+
+    // 3️⃣ Create notification for the customer
+    const { error: notifError } = await supabase
+      .from('notification')
+      .insert([
+        {
+          account_id: rescheduleRequest.account_id,
+          reservation_no: rescheduleRequest.reservation_id,
+          message: `Your reschedule request for reservation #${rescheduleRequest.reservation_id} has been approved ✅`
+        }
+      ]);
+
+    if (notifError) throw notifError;
+
+    // 4️⃣ Delete the reschedule request
+    const { error: deleteError } = await supabase
+      .from('reschedule_request')
+      .delete()
+      .eq('id', rescheduleRequestId);
+
+    if (deleteError) throw deleteError;
+
+    await Swal.fire({
+      title: 'Approved!',
+      text: 'Reschedule request has been approved successfully!',
+      icon: 'success',
+      confirmButtonColor: '#28a745'
     });
 
-    if (!result.isConfirmed) return;
+    fetchDashboardData();
 
-    try {
-      // Get the reschedule request details
-      const { data: rescheduleRequest, error: fetchError } = await supabase
-        .from('reschedule_request')
-        .select('*')
-        .eq('id', rescheduleRequestId)
-        .single();
+  } catch (error) {
+    console.error('Error approving reschedule:', error);
+    Swal.fire({
+      title: 'Error!',
+      text: 'Failed to approve reschedule request',
+      icon: 'error',
+      confirmButtonColor: '#dc3545'
+    });
+  }
+};
 
-      if (fetchError) throw fetchError;
-
-      // Update the original reservation with new details
-      const { error: updateError } = await supabase
-        .from('reservation')
-        .update({
-          table_id: rescheduleRequest.new_table_id,
-          reservation_date: rescheduleRequest.new_reservation_date,
-          start_time: rescheduleRequest.new_start_time,
-          time_end: rescheduleRequest.new_time_end,
-          duration: rescheduleRequest.new_duration,
-          billiard_type: rescheduleRequest.new_billiard_type,
-          total_bill: rescheduleRequest.new_total_bill,
-          status: 'approved'
-        })
-        .eq('id', rescheduleRequest.reservation_id);
-
-      if (updateError) throw updateError;
-
-      // Delete the reschedule request
-      const { error: deleteError } = await supabase
-        .from('reschedule_request')
-        .delete()
-        .eq('id', rescheduleRequestId);
-
-      if (deleteError) throw deleteError;
-
-      await Swal.fire({
-        title: 'Approved!',
-        text: 'Reschedule request has been approved successfully!',
-        icon: 'success',
-        confirmButtonColor: '#28a745'
-      });
-
-      fetchDashboardData();
-    } catch (error) {
-      console.error('Error approving reschedule:', error);
-      Swal.fire({
-        title: 'Error!',
-        text: 'Failed to approve reschedule request',
-        icon: 'error',
-        confirmButtonColor: '#dc3545'
-      });
-    }
-  };
 
 const handleRejectReschedule = async (rescheduleRequestId) => {
   /* ================================

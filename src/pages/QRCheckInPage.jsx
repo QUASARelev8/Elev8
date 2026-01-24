@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { QrCode, CheckCircle, X, AlertCircle, FileImage, FolderOpen, Search } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -21,26 +20,6 @@ export default function QRCheckInPage() {
   const [cameraDevices, setCameraDevices] = useState([]);
   const [selectedCamera, setSelectedCamera] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [tableName, setTableName] = useState("");
-
-  useEffect(() => {
-    const fetchTableName = async () => {
-      if (!selectedReservation?.table_id) return;
-
-      const { data, error } = await supabase
-        .from("billiard_table")
-        .select("table_name")
-        .eq("table_id", selectedReservation.table_id)
-        .single();
-
-      if (!error && data) {
-        setTableName(data.table_name);
-      }
-    };
-
-    fetchTableName();
-  }, [selectedReservation?.table_id]);
-
   const html5QrCodeRef = useRef(null);
   const cardRef = useRef(null);
   const searchRef = useRef(null);
@@ -189,28 +168,30 @@ export default function QRCheckInPage() {
       console.error('Error fetching reservations:', err);
     }
   };
-
-  const onScanSuccess = (decodedText) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const onScanSuccess = async (decodedText) => {
     let searchValue = decodedText;
 
-    // Try to parse as JSON to extract reservationNo
     try {
       const parsed = JSON.parse(decodedText);
       if (parsed.reservationNo) {
         searchValue = parsed.reservationNo;
       }
     } catch (e) {
-      // If not valid JSON, use the raw text
-      searchValue = decodedText;
+      searchValue = decodedText; // fallback to raw QR
     }
 
-    // Set the search query to the extracted reservation number
     setSearchQuery(searchValue);
-    // Automatically search using the scanned QR code
-    handleSearch(searchValue);
-    // Stop the scanner after successful scan
-    stopScanner();
+    setIsLoading(true);
+
+    await stopScanner(); // stop scanner immediately
+
+    // Just call handleSearch
+    await handleSearch(searchValue);
   };
+
+
+
   const onScanError = (error) => {
     // Silent - normal scanning errors
   };
@@ -247,152 +228,36 @@ export default function QRCheckInPage() {
     const searchTerm = String(query).trim();
     if (!searchTerm) return;
 
-    const found = reservations.find(r => r.reservation_no === searchTerm);
+    setIsLoading(true);
 
-    if (!found) {
-      // Show verification dialog
-      const result = await Swal.fire({
-        icon: 'warning',
-        title: 'Double Check Required',
-        html: `
-    <div style="text-align: left;">
-      <p style="margin-bottom: 15px;">Reservation number not found in the system.</p>
-      <p style="margin-bottom: 10px;"><strong>Scanned/Entered:</strong></p>
-      <div style="padding: 12px; background-color: #f3f4f6; border-radius: 8px; border-left: 4px solid #ef4444; margin-bottom: 15px;">
-        <code style="font-size: 16px; font-weight: 600; color: #1f2937;">${searchTerm}</code>
-      </div>
-      <p style="margin-bottom: 10px; font-size: 14px; color: #6b7280;">
-        Please verify:
-      </p>
-      <ul style="margin-left: 20px; margin-bottom: 15px; font-size: 14px; color: #6b7280;">
-        <li>The reservation number is correct</li>
-        <li>The reservation exists in the system</li>
-        <li>There are no typos in the number</li>
-      </ul>
-    </div>
-  `,
-        input: 'text',
-        inputLabel: 'Re-type or correct the Reservation Number',
-        inputValue: searchTerm,
-        inputPlaceholder: 'Enter reservation number',
-        showCancelButton: false,  // TANGGALIN ANG CANCEL BUTTON
-        confirmButtonText: 'OK',  // PALITAN NG "OK"
-        confirmButtonColor: '#3085d6',
-        allowOutsideClick: true,  // PWEDE NA MAG-CLICK OUTSIDE
-        allowEscapeKey: true,      // PWEDE NA ESC KEY
-        inputValidator: (value) => {
-          if (!value || !value.trim()) {
-            return 'Please enter a reservation number';
-          }
-        },
-        preConfirm: async (value) => {
-          const trimmedValue = value.trim();
-          const recheckFound = reservations.find(r => r.reservation_no === trimmedValue);
+    try {
+      // Fetch directly from Supabase for real-time accuracy
+      const { data: foundReservations, error } = await supabase
+        .from('reservation')
+        .select('*')
+        .eq('reservation_no', searchTerm)
+        .limit(1);
 
-          if (!recheckFound) {
-            Swal.showValidationMessage('Reservation number still not found. Please check again.');
-            return false;
-          }
+      if (error) throw error;
 
-          return recheckFound;
-        }
-      });
-
-      if (result.isConfirmed && result.value) {
-        const foundReservation = result.value;
-
-        // Update search query
-        setSearchQuery(foundReservation.reservation_no);
-
-        // Check status and handle accordingly
-        if (foundReservation.status === "ongoing") {
-          const viewResult = await Swal.fire({
-            icon: 'info',
-            title: 'Reservation Ongoing',
-            text: 'This reservation is currently ongoing.',
-            showCancelButton: true,
-            confirmButtonText: 'View Details',
-            cancelButtonText: 'Close',
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#6b7280'
-          });
-
-          if (viewResult.isConfirmed) {
-            setSelectedReservation(foundReservation);
-            setShowSuggestions(false);
-          }
-          return;
-        }
-
-        if (foundReservation.status !== "pending" && foundReservation.status !== "approved") {
-          const viewResult = await Swal.fire({
-            icon: 'warning',
-            title: 'Invalid Status',
-            text: `Reservation status: ${foundReservation.status}`,
-            showCancelButton: true,
-            confirmButtonText: 'View Details',
-            cancelButtonText: 'Close',
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#6b7280'
-          });
-
-          if (viewResult.isConfirmed) {
-            setSelectedReservation(foundReservation);
-            setShowSuggestions(false);
-          }
-          return;
-        }
-
-        // If pending or approved, show directly
-        setSelectedReservation(foundReservation);
-        setShowSuggestions(false);
+      if (!foundReservations || foundReservations.length === 0) {
+        return Swal.fire("Not Found", "Reservation does not exist.", "error");
       }
-      return;
+
+      const found = foundReservations[0];
+
+      // ✅ Just show the modal immediately
+      setSelectedReservation(found);
+      setShowSuggestions(false);
+
+    } catch (err) {
+      console.error("Error fetching reservation:", err);
+      Swal.fire("Error", "Failed to fetch reservation. Try again.", "error");
+    } finally {
+      setIsLoading(false);
     }
-
-    // If found on first try, check status
-    if (found.status === "ongoing") {
-      const viewResult = await Swal.fire({
-        icon: 'info',
-        title: 'Reservation Ongoing',
-        text: 'This reservation is currently ongoing.',
-        showCancelButton: true,
-        confirmButtonText: 'View Details',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#3085d6',
-        cancelButtonColor: '#6b7280'
-      });
-
-      if (viewResult.isConfirmed) {
-        setSelectedReservation(found);
-        setShowSuggestions(false);
-      }
-      return;
-    }
-
-    if (found.status !== "pending" && found.status !== "approved") {
-      const viewResult = await Swal.fire({
-        icon: 'warning',
-        title: 'Invalid Status',
-        text: `Reservation status: ${found.status}`,
-        showCancelButton: true,
-        confirmButtonText: 'View Details',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#3085d6',
-        cancelButtonColor: '#6b7280'
-      });
-
-      if (viewResult.isConfirmed) {
-        setSelectedReservation(found);
-        setShowSuggestions(false);
-      }
-      return;
-    }
-
-    // If pending or approved, show directly
-    setSelectedReservation(found);
-    setShowSuggestions(false);
   };
+
   const handleSuggestionClick = (reservation) => {
     setSearchQuery(reservation.reservation_no);
     setShowSuggestions(false);
@@ -436,7 +301,7 @@ export default function QRCheckInPage() {
         const { error } = await supabase
           .from('reservation')
           .update({
-            status: 'pending',
+            status: 'approved',
             payment_status: true,
             reference_no: generatedRefNo
           })
@@ -470,7 +335,7 @@ export default function QRCheckInPage() {
         const { error } = await supabase
           .from('reservation')
           .update({
-            status: 'pending',
+            status: 'approved',
             reference_no: gcashRefNo
           })
           .eq('id', selectedReservation.id);
@@ -502,7 +367,7 @@ export default function QRCheckInPage() {
       try {
         const { error } = await supabase
           .from('reservation')
-          .update({ status: 'pending' })
+          .update({ status: 'approved' })
           .eq('id', selectedReservation.id);
 
         if (error) throw error;
@@ -577,14 +442,19 @@ export default function QRCheckInPage() {
   };
 
   return (
-    <div className="flex justify-center min-h-screen p-6 bg-gradient-to-br from-slate-100 to-slate-200">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 p-6 flex justify-center">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-70 rounded-xl z-50">
+          <div className="text-gray-700 font-medium animate-pulse">Verifying...</div>
+        </div>
+      )}
 
       {/* Left Section (Scanner + Manual Search) */}
       <div className="bg-white shadow-xl rounded-2xl p-6 w-[430px] h-[600px]">
-        <h1 className="mb-4 text-2xl font-bold text-gray-800">QR Code Verification</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-4">QR Code Verification</h1>
 
         {/* GCash-style QR Scanner */}
-        <div className="relative mb-4 overflow-hidden rounded-xl" style={{ height: '250px' }}>
+        <div className="rounded-xl overflow-hidden mb-4 relative" style={{ height: '250px' }}>
           {scannerActive ? (
             <div className="relative w-full h-full">
               <div id="qr-reader" className="w-full h-full"></div>
@@ -604,23 +474,23 @@ export default function QRCheckInPage() {
                 </div>
 
                 {/* Instructions text */}
-                <div className="absolute left-0 right-0 text-center bottom-4">
-                  <p className="inline-block px-4 py-2 text-sm font-semibold text-white rounded-full bg-black/60">
+                <div className="absolute bottom-4 left-0 right-0 text-center">
+                  <p className="text-white text-sm font-semibold bg-black/60 px-4 py-2 rounded-full inline-block">
                     Align QR code within frame
                   </p>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full p-8 border-2 border-blue-300 border-dashed bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl">
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-8 border-2 border-dashed border-blue-300 h-full flex flex-col justify-center items-center">
               <div className="relative">
                 <QrCode size={60} className="text-blue-500" />
                 {/* Decorative scan lines */}
-                <div className="absolute border-2 border-blue-300 rounded-lg opacity-50 -inset-2"></div>
-                <div className="absolute border-2 border-blue-200 rounded-lg -inset-4 opacity-30"></div>
+                <div className="absolute -inset-2 border-2 border-blue-300 rounded-lg opacity-50"></div>
+                <div className="absolute -inset-4 border-2 border-blue-200 rounded-lg opacity-30"></div>
               </div>
-              <p className="mt-4 text-base font-semibold text-blue-700">Scan QR Code</p>
-              <p className="mt-1 text-xs text-blue-500">Position QR code within frame</p>
+              <p className="text-blue-700 font-semibold text-base mt-4">Scan QR Code</p>
+              <p className="text-blue-500 text-xs mt-1">Position QR code within frame</p>
             </div>
           )}
         </div>
@@ -629,10 +499,10 @@ export default function QRCheckInPage() {
           onClick={toggleScanner}
           disabled={cameraDevices.length === 0}
           className={`w-full px-4 py-3 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 ${cameraDevices.length === 0
-            ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-            : scannerActive
-              ? 'bg-red-600 text-white hover:bg-red-700'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
+              ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+              : scannerActive
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
         >
           <QrCode size={18} />
@@ -644,7 +514,7 @@ export default function QRCheckInPage() {
             <select
               value={selectedCamera || ''}
               onChange={(e) => setSelectedCamera(e.target.value)}
-              className="w-full px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               {cameraDevices.map((device) => (
                 <option key={device.id} value={device.id}>
@@ -655,13 +525,13 @@ export default function QRCheckInPage() {
           </div>
         )}
 
-        <p className="mt-4 mb-2 text-xs text-center text-gray-400">OR</p>
+        <p className="text-center text-gray-400 text-xs mt-4 mb-2">OR</p>
 
         {/* Real-time Search with Suggestions */}
         <div className="relative" ref={searchRef}>
           <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute text-gray-400 transform -translate-y-1/2 left-3 top-1/2" size={18} />
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
                 placeholder="Search reservation number..."
@@ -669,12 +539,12 @@ export default function QRCheckInPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && handleSearch()}
                 onFocus={() => searchQuery && setShowSuggestions(true)}
-                className="w-full py-2 pl-10 pr-4 transition-all border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               />
             </div>
             <button
               onClick={() => handleSearch()}
-              className="px-4 py-2 text-sm font-semibold text-white transition bg-gray-900 rounded-lg hover:bg-gray-800"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 transition font-semibold"
             >
               Verify
             </button>
@@ -682,14 +552,14 @@ export default function QRCheckInPage() {
 
           {/* Real-time Suggestions Dropdown */}
           {showSuggestions && filteredReservations.length > 0 && (
-            <div className="absolute z-10 w-full mt-2 overflow-y-auto bg-white border-2 border-gray-200 rounded-lg shadow-xl max-h-60">
+            <div className="absolute z-10 w-full mt-2 bg-white border-2 border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
               {filteredReservations.map((reservation) => (
                 <div
                   key={reservation.id}
                   onClick={() => handleSuggestionClick(reservation)}
-                  className="px-4 py-3 transition-colors border-b border-gray-100 cursor-pointer hover:bg-blue-50 last:border-b-0"
+                  className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <div>
                       <p className="font-semibold text-gray-800">{reservation.reservation_no}</p>
                       <p className="text-xs text-gray-500">Table {reservation.table_id} • {reservation.reservation_date}</p>
@@ -708,18 +578,18 @@ export default function QRCheckInPage() {
 
       {/* MODAL FOR RESERVATION DETAILS */}
       {selectedReservation && !confirmationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-[600px] relative">
 
             <button
               onClick={() => setSelectedReservation(null)}
-              className="absolute text-gray-500 top-4 right-4 hover:text-black"
+              className="absolute top-4 right-4 text-gray-500 hover:text-black"
             >
               <X size={22} />
             </button>
 
             <div ref={cardRef}>
-              <h2 className="flex items-center gap-2 text-2xl font-bold text-green-600">
+              <h2 className="text-2xl font-bold text-green-600 flex items-center gap-2">
                 <CheckCircle size={26} className="text-green-500" />
                 Reservation Verified
               </h2>
@@ -727,8 +597,7 @@ export default function QRCheckInPage() {
               <div className="mt-4 space-y-2 text-gray-700">
                 <Detail label="Reservation No" value={selectedReservation.reservation_no || "N/A"} />
                 <Detail label="Reservation ID" value={`#${selectedReservation.id}`} />
-                <Detail label="Table" value={tableName ? tableName : `Table ${selectedReservation.table_id}`} />
-
+                <Detail label="Table" value={`Table ${selectedReservation.table_id}`} />
                 <Detail label="Date" value={selectedReservation.reservation_date} />
                 <Detail label="Start Time" value={selectedReservation.start_time} />
                 <Detail label="Duration" value={`${selectedReservation.duration} hr(s)`} />
@@ -744,21 +613,21 @@ export default function QRCheckInPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={downloadPDF}
-                className="flex-1 py-3 font-semibold text-white transition bg-blue-600 rounded-xl hover:bg-blue-700"
+                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition"
               >
                 Download PDF
               </button>
 
               <button
                 onClick={saveAsImage}
-                className="flex-1 py-3 font-semibold text-white transition bg-purple-600 rounded-xl hover:bg-purple-700"
+                className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition"
               >
                 Save Image
               </button>
 
               <button
                 onClick={() => setShowProofModal(true)}
-                className="flex items-center justify-center flex-1 gap-2 py-3 font-semibold text-white transition bg-amber-600 rounded-xl hover:bg-amber-700"
+                className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition flex items-center justify-center gap-2"
               >
                 {selectedReservation.proof_of_payment ? (
                   <>
@@ -774,24 +643,24 @@ export default function QRCheckInPage() {
               </button>
             </div>
 
-            <button
-              onClick={() => setSelectedReservation(null)}
-              className="w-full py-3 mt-4 font-semibold text-white transition bg-gray-800 rounded-xl hover:bg-gray-900"
+            {/* <button
+              onClick={handleCheckInClick}
+              className="mt-4 w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition"
             >
-              Close
-            </button>
+              Check-in Customer
+            </button> */}
           </div>
         </div>
       )}
 
       {/* CONFIRMATION MODAL */}
       {selectedReservation && confirmationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-[500px] relative">
 
             <button
               onClick={() => setConfirmationModal(false)}
-              className="absolute text-gray-500 top-4 right-4 hover:text-black"
+              className="absolute top-4 right-4 text-gray-500 hover:text-black"
             >
               <X size={22} />
             </button>
@@ -801,14 +670,14 @@ export default function QRCheckInPage() {
               <h2 className="text-2xl font-bold text-gray-800">Confirm Check-in</h2>
             </div>
 
-            <div className="p-4 mb-6 space-y-3 rounded-lg bg-gray-50">
+            <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-3">
               <Detail label="Reservation No" value={selectedReservation.reservation_no || "N/A"} />
               <Detail label="Table" value={`Table ${selectedReservation.table_id}`} />
               <Detail label="Payment Method" value={selectedReservation.paymentMethod || "N/A"} />
               <Detail label="Payment Type" value={selectedReservation.payment_type || "N/A"} />
               <Detail label="Total Bill" value={`₱${selectedReservation.total_bill || 0}`} />
               {generatedRefNo && (
-                <div className="p-2 mt-3 border-2 border-blue-200 rounded bg-blue-50">
+                <div className="bg-blue-50 border-2 border-blue-200 rounded p-2 mt-3">
                   <Detail label="Reference No" value={generatedRefNo} />
                 </div>
               )}
@@ -816,7 +685,7 @@ export default function QRCheckInPage() {
 
             {selectedReservation.paymentMethod === 'GCash' && (
               <div className="mb-6">
-                <label className="block mb-2 text-sm font-semibold text-gray-700">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
                   GCash Reference Number <span className="text-red-600">*</span>
                 </label>
                 <input
@@ -824,14 +693,14 @@ export default function QRCheckInPage() {
                   placeholder="Enter GCash Reference Number"
                   value={gcashRefNo}
                   onChange={(e) => setGcashRefNo(e.target.value)}
-                  className="w-full px-4 py-2 transition-all border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
             )}
 
             {selectedReservation.paymentMethod === 'Cash' && selectedReservation.payment_type === 'Full Payment' && (
-              <div className="p-4 mb-6 border-2 border-green-200 rounded-lg bg-green-50">
-                <p className="text-sm font-semibold text-green-700">
+              <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mb-6">
+                <p className="text-green-700 font-semibold text-sm">
                   ✓ Payment will be marked as <strong>COMPLETE</strong> upon check-in
                 </p>
               </div>
@@ -840,13 +709,13 @@ export default function QRCheckInPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmationModal(false)}
-                className="flex-1 py-3 font-semibold text-gray-800 transition bg-gray-300 rounded-xl hover:bg-gray-400"
+                className="flex-1 py-3 bg-gray-300 text-gray-800 rounded-xl font-semibold hover:bg-gray-400 transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCheckIn}
-                className="flex-1 py-3 font-semibold text-white transition bg-green-600 rounded-xl hover:bg-green-700"
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition"
               >
                 Confirm Check-in
               </button>
@@ -862,23 +731,23 @@ export default function QRCheckInPage() {
 
             <button
               onClick={() => setShowProofModal(false)}
-              className="absolute z-10 text-gray-500 top-4 right-4 hover:text-black"
+              className="absolute top-4 right-4 text-gray-500 hover:text-black z-10"
             >
               <X size={22} />
             </button>
 
-            <h2 className="flex items-center gap-2 mb-4 text-2xl font-bold text-gray-800">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
               <FileImage size={26} className="text-amber-600" />
               Proof of Payment
             </h2>
 
-            <div className="p-4 mb-4 rounded-lg bg-gray-50">
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
               <Detail label="Reservation No" value={selectedReservation.reservation_no || "N/A"} />
               <Detail label="Payment Method" value={selectedReservation.paymentMethod || "N/A"} />
             </div>
 
             {selectedReservation.proof_of_payment ? (
-              <div className="p-4 bg-white border-2 border-gray-200 rounded-lg">
+              <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
                 <img
                   src={selectedReservation.proof_of_payment}
                   alt="Proof of Payment"
@@ -886,16 +755,16 @@ export default function QRCheckInPage() {
                 />
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center p-12 bg-gray-100 border-2 border-gray-300 border-dashed rounded-lg">
-                <FolderOpen size={60} className="mb-4 text-gray-400" />
-                <p className="text-lg font-semibold text-gray-500">No Proof of Payment</p>
-                <p className="mt-2 text-sm text-gray-400">Customer has not uploaded proof of payment yet.</p>
+              <div className="bg-gray-100 rounded-lg p-12 flex flex-col items-center justify-center border-2 border-dashed border-gray-300">
+                <FolderOpen size={60} className="text-gray-400 mb-4" />
+                <p className="text-gray-500 text-lg font-semibold">No Proof of Payment</p>
+                <p className="text-gray-400 text-sm mt-2">Customer has not uploaded proof of payment yet.</p>
               </div>
             )}
 
             <button
               onClick={() => setShowProofModal(false)}
-              className="w-full py-3 mt-6 font-semibold text-white transition bg-gray-800 rounded-xl hover:bg-gray-900"
+              className="mt-6 w-full py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-900 transition"
             >
               Close
             </button>
@@ -928,8 +797,8 @@ export default function QRCheckInPage() {
 
 function Detail({ label, value }) {
   return (
-    <div className="flex justify-between pb-1 border-b">
-      <span className="text-sm font-medium">{label}:</span>
+    <div className="flex justify-between border-b pb-1">
+      <span className="font-medium text-sm">{label}:</span>
       <span className="text-sm">{value}</span>
     </div>
   );

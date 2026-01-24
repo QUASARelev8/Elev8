@@ -259,52 +259,58 @@ function App() {
  // ✅ Fetch notification count - FIXED to match Notification.js filtering
 
 useEffect(() => {
-  if (!isLoggedIn) return;
+  if (!isLoggedIn || !userRole) return;
 
   const fetchNotificationCount = async () => {
-    const sessionData = localStorage.getItem("userSession");
-    if (!sessionData) return;
-
     try {
+      const sessionData = localStorage.getItem("userSession");
+      if (!sessionData) return;
+
       const session = JSON.parse(sessionData);
-      const currentAccountId = session.account_id || session.id;
+      const accountId = session.account_id || session.id;
 
       let query = supabase
         .from("notification")
         .select("id", { count: "exact", head: true })
         .eq("is_read", false);
 
-      // ✅ FIXED: Apply same role-based filtering as Notification component
+      // ✅ CUSTOMER
       if (userRole === "customer") {
-        query = query.eq("account_id", currentAccountId);
-      } else if (userRole === "manager") {
-        query = query.ilike("message", "%reject%");
-      } else if (userRole === "frontdesk") {
-        query = query.ilike("message", "%reject%");
+        query = query
+          .eq("account_id", accountId)
+          .or(
+            "message.ilike.%rejected%,message.ilike.%reject%,message.ilike.%approved%"
+          );
+      }
+
+      // ✅ MANAGER / FRONTDESK
+      if (userRole === "manager" || userRole === "frontdesk") {
+        query = query.or(
+          "message.ilike.%reschedule%,message.ilike.%new reservation%"
+        );
       }
 
       const { count, error } = await query;
 
-      if (!error) {
-        setNotificationCount(count || 0);
-        console.log(`📊 Notification count for ${userRole}:`, count);
+      if (error) {
+        console.error("❌ Error fetching notification count:", error);
+        return;
       }
-    } catch (error) {
-      console.error("Error fetching notification count:", error);
+
+      setNotificationCount(count ?? 0);
+    } catch (err) {
+      console.error("❌ Notification count error:", err);
     }
   };
 
   fetchNotificationCount();
 
-  // Subscribe to real-time updates
   const channel = supabase
     .channel("notification_count")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "notification" },
-      () => {
-        fetchNotificationCount();
-      }
+      fetchNotificationCount
     )
     .subscribe();
 
@@ -312,6 +318,9 @@ useEffect(() => {
     supabase.removeChannel(channel);
   };
 }, [isLoggedIn, userRole]);
+
+
+
   // Save current page
   useEffect(() => {
     if (currentPage) {

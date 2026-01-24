@@ -105,14 +105,14 @@ const Reference = () => {
     },
      { 
       id: "RejectManager", 
-      name: "Reject Manager", 
+      name: "REJECT MANAGER", 
       locked: false,
       icon: QrCode,
       color: "#3b82f6"
     },
       { 
       id: "RejectFrontdesk", 
-      name: "Reject Frontdesk", 
+      name: "REJECT FRONTDESK", 
       locked: false,
       icon: QrCode,
       color: "#3b82f6"
