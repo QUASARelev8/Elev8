@@ -526,7 +526,7 @@ const getAvailableTimes = async (tableId, date) => {
     .select('start_time, time_end')
     .eq('table_id', tableId)
     .eq('reservation_date', date)
-   .neq('status', 'cancelled')
+    .neq('status', 'cancelled')
     .order('start_time', { ascending: true });
 
   if (reservationError) {
@@ -550,7 +550,20 @@ const getAvailableTimes = async (tableId, date) => {
     const timeString = `${displayHour}:${String(currentMinute).padStart(2, '0')} ${period}`;
     const dbTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}:00`;
     
-    const isPast = date === today && isTimeInPast(timeString, date);
+    // ✅ Check if this time is in the past
+    let isPast = false;
+    if (date === today) {
+      const now = new Date();
+      const currentTimeHours = now.getHours();
+      const currentTimeMinutes = now.getMinutes();
+      
+      // Compare with current time
+      if (currentHour < currentTimeHours) {
+        isPast = true;
+      } else if (currentHour === currentTimeHours && currentMinute <= currentTimeMinutes) {
+        isPast = true;
+      }
+    }
     
     // ✅ GAP PREVENTION LOGIC
     let createsGap = false;
@@ -605,7 +618,8 @@ const getAvailableTimes = async (tableId, date) => {
       return { 
         time: slot.time, 
         available: false,
-        createsGap: false
+        createsGap: false,
+        isPast: true
       };
     }
     
@@ -614,7 +628,8 @@ const getAvailableTimes = async (tableId, date) => {
       return {
         time: slot.time,
         available: false,
-        createsGap: true
+        createsGap: true,
+        isPast: false
       };
     }
     
@@ -632,21 +647,24 @@ const getAvailableTimes = async (tableId, date) => {
         return { 
           time: slot.time, 
           available: true,
-          createsGap: false
+          createsGap: false,
+          isPast: false
         };
       }
       
       return {
         time: slot.time,
         available: isAvailable === true,
-        createsGap: false
+        createsGap: false,
+        isPast: false
       };
     } catch (err) {
       console.error('Error checking availability:', err);
       return { 
         time: slot.time, 
         available: true,
-        createsGap: false
+        createsGap: false,
+        isPast: false
       };
     }
   });
@@ -1176,7 +1194,7 @@ filterDate={(date) => {
               />
             </div>
 
-{/* Time */}
+
 {/* Time */}
 <div>
   <label style={{
@@ -1194,6 +1212,21 @@ filterDate={(date) => {
       const selectedTime = e.target.value;
       const timeObj = availableTimes.find(t => t.time === selectedTime);
       
+      // ✅ Check if this is a past time
+      if (timeObj && timeObj.isPast) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Time Has Passed',
+          html: `
+            <p><strong>${selectedTime}</strong> has already passed.</p>
+            <p>Please select a future time slot.</p>
+          `,
+          confirmButtonColor: '#28a745',
+          confirmButtonText: 'OK'
+        });
+        return;
+      }
+      
       // ✅ Check if this time creates a gap
       if (timeObj && timeObj.createsGap) {
         Swal.fire({
@@ -1207,11 +1240,11 @@ filterDate={(date) => {
           confirmButtonColor: '#28a745',
           confirmButtonText: 'OK'
         });
-        return; // Don't update the form
+        return;
       }
       
-      // ✅ Check if reserved
-      if (timeObj && !timeObj.available) {
+      // ✅ Check if reserved (not past and not available)
+      if (timeObj && !timeObj.available && !timeObj.isPast && !timeObj.createsGap) {
         Swal.fire({
           icon: 'error',
           title: 'Time Already Reserved',
@@ -1219,7 +1252,7 @@ filterDate={(date) => {
           confirmButtonColor: '#dc3545',
           confirmButtonText: 'OK'
         });
-        return; // Don't update the form
+        return;
       }
       
       // ✅ If available, proceed
@@ -1248,28 +1281,34 @@ filterDate={(date) => {
       }
     </option>
     {availableTimes.map(timeObj => {
-      const isReserved = !timeObj.available && !timeObj.createsGap;
-      const createsGap = timeObj.createsGap;
+      const isPast = timeObj.isPast === true;
+      const isReserved = !timeObj.available && !timeObj.createsGap && !timeObj.isPast;
+      const createsGap = timeObj.createsGap === true;
       
       return (
         <option 
           key={timeObj.time} 
           value={timeObj.time}
           style={{
-            backgroundColor: isReserved 
+            backgroundColor: isPast
+              ? '#e0e0e0'
+              : isReserved 
               ? '#ffebee' 
               : createsGap 
               ? '#fff3cd' 
               : 'white',
-            color: isReserved 
+            color: isPast
+              ? '#757575'
+              : isReserved 
               ? '#dc3545' 
               : createsGap 
               ? '#856404' 
               : '#333',
-            fontWeight: (isReserved || createsGap) ? '600' : 'normal'
+            fontWeight: (isPast || isReserved || createsGap) ? '600' : 'normal'
           }}
         >
           {timeObj.time} 
+          {isPast ? ' (Time Passed)' : ''}
           {isReserved ? ' (Reserved)' : ''}
           {createsGap ? ' (Gap Issue)' : ''}
         </option>

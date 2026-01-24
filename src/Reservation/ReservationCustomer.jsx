@@ -3,8 +3,8 @@ import { supabase } from "../lib/supabaseClient";
 import Swal from "sweetalert2";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import {Clock,Calendar,AlertCircle,CheckCircle,XCircle, Eye} from "lucide-react";
-import { getTodayDate, isDateClosed, getDayNameFromDate, isTimeInPast,createDateFilter,createDayClassName } from '../components/dateUtils';
+import { Clock, Calendar, AlertCircle, CheckCircle, XCircle, Eye } from "lucide-react";
+import { getTodayDate, isDateClosed, getDayNameFromDate, isTimeInPast, createDateFilter, createDayClassName } from '../components/dateUtils';
 
 const CustomerReservation = () => {
   const [reservations, setReservations] = useState([]);
@@ -223,8 +223,8 @@ const CustomerReservation = () => {
         currentHour === 0
           ? 12
           : currentHour > 12
-          ? currentHour - 12
-          : currentHour;
+            ? currentHour - 12
+            : currentHour;
       const timeString = `${displayHour}:${String(currentMinute).padStart(
         2,
         "0"
@@ -576,6 +576,11 @@ const CustomerReservation = () => {
   };
 
   const handleConfirmReschedule = async () => {
+    // ✅ PREVENT DOUBLE SUBMISSION
+    if (rescheduleForm.isSubmitting) {
+      return;
+    }
+
     if (
       !selectedTable ||
       !rescheduleForm.date ||
@@ -591,11 +596,11 @@ const CustomerReservation = () => {
     }
 
     try {
-      // ✅ SAFE CUSTOMER NAME
-      const customerName =
-        currentUser?.full_name ||
-        currentUser?.email ||
-        "Customer";
+      // ✅ SET SUBMITTING FLAG
+      setRescheduleForm((prev) => ({ ...prev, isSubmitting: true }));
+
+      // ✅ GET CUSTOMER NAME
+      const customerName = currentUser?.full_name || currentUser?.email || "Customer";
 
       // ✅ GET DURATION
       const selectedDuration = durations.find(
@@ -603,6 +608,7 @@ const CustomerReservation = () => {
       );
 
       if (!selectedDuration) {
+        setRescheduleForm((prev) => ({ ...prev, isSubmitting: false }));
         Swal.fire({
           icon: "error",
           title: "Invalid Duration",
@@ -632,6 +638,7 @@ const CustomerReservation = () => {
       if (availError) throw availError;
 
       if (!isAvailable) {
+        setRescheduleForm((prev) => ({ ...prev, isSubmitting: false }));
         Swal.fire({
           icon: "error",
           title: "Table Not Available",
@@ -681,28 +688,24 @@ const CustomerReservation = () => {
         });
       };
 
-      // ✅ CUSTOMER NOTIFICATION
+      // ✅ CUSTOMER NOTIFICATION (Simple confirmation only)
+      // ✅ CUSTOMER NOTIFICATION (Simple confirmation only)
       await supabase.from("notification").insert({
         account_id: currentUser.account_id,
         reservation_no: rescheduleData.reservation_no,
-        message: `Your reschedule request for ${rescheduleData.reservation_no} has been submitted and is waiting for approval`,
+        message: `${customerName} requested to reschedule reservation ${rescheduleData.reservation_no} from ${formatDate(rescheduleData.reservation_date)} at ${rescheduleData.start_time} (${getTableName(rescheduleData.table_id)}) to ${formatDate(rescheduleForm.date)} at ${rescheduleForm.time} (${selectedTable.table_name})`,
         is_read: false,
         created_at: new Date().toISOString(),
       });
 
-      // ✅ MANAGER / FRONTDESK NOTIFICATION
+      // ✅ MANAGER / FRONTDESK NOTIFICATION (Detailed info)
       await supabase.from("notification").insert({
-        account_id: null, // 👈 manager / frontdesk
+        account_id: null, // 👈 For manager/frontdesk
         reservation_no: rescheduleData.reservation_no,
-        message: `Requester ${customerName} rescheduled reservation ${rescheduleData.reservation_no
-          } from ${formatDate(rescheduleData.reservation_date)} at ${rescheduleData.start_time
-          } (${getTableName(rescheduleData.table_id)}) to ${formatDate(
-            rescheduleForm.date
-          )} at ${rescheduleForm.time} (${selectedTable.table_name})`,
+        message: `${customerName} requested to reschedule reservation ${rescheduleData.reservation_no} from ${formatDate(rescheduleData.reservation_date)} at ${rescheduleData.start_time} (${getTableName(rescheduleData.table_id)}) to ${formatDate(rescheduleForm.date)} at ${rescheduleForm.time} (${selectedTable.table_name})`,
         is_read: false,
         created_at: new Date().toISOString(),
       });
-
 
       // ✅ SUCCESS MESSAGE
       Swal.fire({
@@ -717,10 +720,12 @@ const CustomerReservation = () => {
       setShowReschedule(false);
       setRescheduleData(null);
       setSelectedTable(null);
+      setRescheduleForm((prev) => ({ ...prev, isSubmitting: false }));
       fetchReservations();
 
     } catch (error) {
       console.error("Error creating reschedule request:", error);
+      setRescheduleForm((prev) => ({ ...prev, isSubmitting: false }));
       Swal.fire({
         icon: "error",
         title: "Error",
@@ -728,7 +733,6 @@ const CustomerReservation = () => {
       });
     }
   };
-
   const handleCancelReschedule = () => {
     setShowReschedule(false);
     setRescheduleData(null);
@@ -1034,7 +1038,7 @@ const CustomerReservation = () => {
                         style={{
                           margin: "0 0 5px 0",
                           fontSize: "20px",
-                          fontWeight: "700",color: "#333",
+                          fontWeight: "700", color: "#333",
                         }}
                       >
                         {getTableName(reservation.table_id)} -{" "}
@@ -1052,7 +1056,7 @@ const CustomerReservation = () => {
                           `RF${String(reservation.id).padStart(3, "0")}`}
                       </p>
                     </div>
-                  
+
                   </div>
 
                   {/* Details */}
@@ -1163,15 +1167,15 @@ const CustomerReservation = () => {
                           margin: 0,
                           fontSize: "16px",
                           fontWeight: "700",
-                          color: reservation.payment_status === "completed" ? "#28a745" : 
-                                 reservation.payment_status === "pending" ? "#ff9800" : "#6c757d",
+                          color: reservation.payment_status === "completed" ? "#28a745" :
+                            reservation.payment_status === "pending" ? "#ff9800" : "#6c757d",
                           textTransform: "capitalize"
                         }}
                       >
                         {reservation.payment_status || "Pending"}
                       </p>
                     </div>
-                {/* QR Code - Only show for approved, ongoing, or completed reservations */}
+                    {/* QR Code - Only show for approved, ongoing, or completed reservations */}
                     {reservation.qr_code && reservation.status !== "pending" && reservation.status !== "rescheduled" && (
                       <div>
                         <p
@@ -1245,80 +1249,80 @@ const CustomerReservation = () => {
                   {/* Action Buttons */}
                   {(reservation.status === "pending" ||
                     reservation.status === "rescheduled") && (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "10px",
-                        marginTop: "20px",
-                      }}
-                    >
-                      <button
-                        onClick={() => handleCancel(reservation.id)}
+                      <div
                         style={{
-                          padding: "10px 20px",
-                          backgroundColor: "#dc3545",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "6px",
-                          fontSize: "14px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                          transition: "background-color 0.2s",
-                        }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.backgroundColor = "#c82333")
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.backgroundColor = "#dc3545")
-                        }
-                      >
-                        Cancel
-                      </button>
-    
-                      <button
-                        onClick={() => handleReschedule(reservation)}
-                        disabled={reservation.status === "rescheduled"}
-                        style={{
-                          padding: "10px 20px",
-                          backgroundColor:
-                            reservation.status === "rescheduled"
-                              ? "#6c757d"
-                              : "#17a2b8",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "6px",
-                          fontSize: "14px",
-                          fontWeight: "600",
-                          cursor:
-                            reservation.status === "rescheduled"
-                              ? "not-allowed"
-                              : "pointer",
-                          opacity:
-                            reservation.status === "rescheduled" ? 0.6 : 1,
-                          transition: "all 0.2s",
-                        }}
-                        onMouseEnter={(e) => {
-                          if (reservation.status !== "rescheduled") {
-                            e.currentTarget.style.backgroundColor = "#138496";
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (reservation.status !== "rescheduled") {
-                            e.currentTarget.style.backgroundColor = "#17a2b8";
-                          }
+                          display: "flex",
+                          gap: "10px",
+                          marginTop: "20px",
                         }}
                       >
-                        {reservation.status === "rescheduled"
-                          ? "Already Rescheduled"
-                          : "Reschedule"}
-                      </button>
-                                        {/* VIEW QR CODE BUTTON - For Pending */}
-    {reservation.status === "pending" && reservation.qr_code && (
-      <button
-        onClick={() => {
-          Swal.fire({
-            title: "Your QR Code",
-            html: `
+                        <button
+                          onClick={() => handleCancel(reservation.id)}
+                          style={{
+                            padding: "10px 20px",
+                            backgroundColor: "#dc3545",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "6px",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            cursor: "pointer",
+                            transition: "background-color 0.2s",
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor = "#c82333")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor = "#dc3545")
+                          }
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          onClick={() => handleReschedule(reservation)}
+                          disabled={reservation.status === "rescheduled"}
+                          style={{
+                            padding: "10px 20px",
+                            backgroundColor:
+                              reservation.status === "rescheduled"
+                                ? "#6c757d"
+                                : "#17a2b8",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "6px",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            cursor:
+                              reservation.status === "rescheduled"
+                                ? "not-allowed"
+                                : "pointer",
+                            opacity:
+                              reservation.status === "rescheduled" ? 0.6 : 1,
+                            transition: "all 0.2s",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (reservation.status !== "rescheduled") {
+                              e.currentTarget.style.backgroundColor = "#138496";
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (reservation.status !== "rescheduled") {
+                              e.currentTarget.style.backgroundColor = "#17a2b8";
+                            }
+                          }}
+                        >
+                          {reservation.status === "rescheduled"
+                            ? "Already Rescheduled"
+                            : "Reschedule"}
+                        </button>
+                        {/* VIEW QR CODE BUTTON - For Pending */}
+                        {reservation.status === "pending" && reservation.qr_code && (
+                          <button
+                            onClick={() => {
+                              Swal.fire({
+                                title: "Your QR Code",
+                                html: `
               <div style="text-align: center; padding: 20px;">
                 <p style="margin: 0 0 15px 0; font-size: 14px; color: #666;">
                   Reservation: <strong>${reservation.reservation_no}</strong>
@@ -1329,38 +1333,38 @@ const CustomerReservation = () => {
                 </p>
               </div>
             `,
-            confirmButtonColor: "#28a745",
-            confirmButtonText: "Close",
-            width: "400px",
-          });
-        }}
-        style={{
-          padding: "10px 20px",
-          backgroundColor: "#17a2b8",
-          color: "white",
-          border: "none",
-          borderRadius: "6px",
-          fontSize: "14px",
-          fontWeight: "600",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-          transition: "background-color 0.2s",
-        }}
-        onMouseEnter={(e) =>
-          (e.currentTarget.style.backgroundColor = "#138496")
-        }
-        onMouseLeave={(e) =>
-          (e.currentTarget.style.backgroundColor = "#17a2b8")
-        }
-      >
-        <Eye size={16} />
-        View QR Code
-      </button>
-    )}
-                    </div>
-                  )}
+                                confirmButtonColor: "#28a745",
+                                confirmButtonText: "Close",
+                                width: "400px",
+                              });
+                            }}
+                            style={{
+                              padding: "10px 20px",
+                              backgroundColor: "#17a2b8",
+                              color: "white",
+                              border: "none",
+                              borderRadius: "6px",
+                              fontSize: "14px",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              transition: "background-color 0.2s",
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.backgroundColor = "#138496")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.backgroundColor = "#17a2b8")
+                            }
+                          >
+                            <Eye size={16} />
+                            View QR Code
+                          </button>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
             ))
@@ -1480,12 +1484,12 @@ const CustomerReservation = () => {
                         selected={rescheduleForm.date ? new Date(rescheduleForm.date + 'T00:00:00') : null}
                         onChange={(date) => {
                           if (!date) return;
-                          
+
                           const year = date.getFullYear();
                           const month = String(date.getMonth() + 1).padStart(2, '0');
                           const day = String(date.getDate()).padStart(2, '0');
                           const dateString = `${year}-${month}-${day}`;
-                          
+
                           if (isDateClosed(dateString, timeDates)) {
                             Swal.fire({
                               icon: 'error',
@@ -1494,7 +1498,7 @@ const CustomerReservation = () => {
                             });
                             return;
                           }
-                          
+
                           handleRescheduleFormChange('date', dateString);
                         }}
                         minDate={new Date()}
@@ -1572,14 +1576,14 @@ const CustomerReservation = () => {
                           boxSizing: "border-box",
                           cursor:
                             !rescheduleForm.date ||
-                            isDateClosed(rescheduleForm.date, timeDates) ||
-                            availableTimes.length === 0
+                              isDateClosed(rescheduleForm.date, timeDates) ||
+                              availableTimes.length === 0
                               ? "not-allowed"
                               : "pointer",
                           opacity:
                             !rescheduleForm.date ||
-                            isDateClosed(rescheduleForm.date, timeDates) ||
-                            availableTimes.length === 0
+                              isDateClosed(rescheduleForm.date, timeDates) ||
+                              availableTimes.length === 0
                               ? 0.6
                               : 1,
                         }}
@@ -1588,10 +1592,10 @@ const CustomerReservation = () => {
                           {!rescheduleForm.date
                             ? "Select a date first"
                             : isDateClosed(rescheduleForm.date, timeDates)
-                            ? "Date is closed"
-                            : availableTimes.length === 0
-                            ? "Loading..."
-                            : "Select time"}
+                              ? "Date is closed"
+                              : availableTimes.length === 0
+                                ? "Loading..."
+                                : "Select time"}
                         </option>
                         {availableTimes.map((timeObj) => {
                           const isReserved =
@@ -1606,13 +1610,13 @@ const CustomerReservation = () => {
                                 backgroundColor: isReserved
                                   ? "#ffebee"
                                   : createsGap
-                                  ? "#fff3cd"
-                                  : "white",
+                                    ? "#fff3cd"
+                                    : "white",
                                 color: isReserved
                                   ? "#dc3545"
                                   : createsGap
-                                  ? "#856404"
-                                  : "#333",
+                                    ? "#856404"
+                                    : "#333",
                                 fontWeight:
                                   isReserved || createsGap ? "600" : "normal",
                               }}
@@ -1672,7 +1676,7 @@ const CustomerReservation = () => {
                           .map((duration) => {
                             const hours = Math.floor(duration.hours);
                             const minutes = (duration.hours % 1) * 60;
-                            
+
                             let displayText = '';
                             if (hours > 0) {
                               displayText += `${hours} hour${hours > 1 ? 's' : ''}`;
@@ -1681,7 +1685,7 @@ const CustomerReservation = () => {
                               if (hours > 0) displayText += ' ';
                               displayText += `${minutes} mins`;
                             }
-                            
+
                             return (
                               <option key={duration.id} value={duration.id}>
                                 {displayText}
@@ -1912,44 +1916,44 @@ const CustomerReservation = () => {
                 Cancel
               </button>
               <button
-  onClick={handleConfirmReschedule}
-  disabled={
-    !selectedTable || 
-    !rescheduleForm.date || 
-    !rescheduleForm.time || 
-    !rescheduleForm.duration // ✅ ADD duration check
-  }
-  style={{
-    padding: "12px 30px",
-    backgroundColor: "#28a745",
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-    fontSize: "16px",
-    fontWeight: "600",
-    cursor:
-      !selectedTable ||
-      !rescheduleForm.date ||
-      !rescheduleForm.time ||
-      !rescheduleForm.duration // ✅ ADD duration check
-        ? "not-allowed"
-        : "pointer",
-    opacity:
-      !selectedTable ||
-      !rescheduleForm.date ||
-      !rescheduleForm.time ||
-      !rescheduleForm.duration // ✅ ADD duration check
-        ? 0.5
-        : 1,
-  }}
->
-  Confirm Reschedule
-</button>
+                onClick={handleConfirmReschedule}
+                disabled={
+                  !selectedTable ||
+                  !rescheduleForm.date ||
+                  !rescheduleForm.time ||
+                  !rescheduleForm.duration // ✅ ADD duration check
+                }
+                style={{
+                  padding: "12px 30px",
+                  backgroundColor: "#28a745",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  cursor:
+                    !selectedTable ||
+                      !rescheduleForm.date ||
+                      !rescheduleForm.time ||
+                      !rescheduleForm.duration // ✅ ADD duration check
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    !selectedTable ||
+                      !rescheduleForm.date ||
+                      !rescheduleForm.time ||
+                      !rescheduleForm.duration // ✅ ADD duration check
+                      ? 0.5
+                      : 1,
+                }}
+              >
+                Confirm Reschedule
+              </button>
             </div>
           </div>
         </div>
       )}
- <style>
+      <style>
         {`
           @keyframes spin {
             0% { transform: rotate(0deg); }

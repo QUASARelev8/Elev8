@@ -153,6 +153,7 @@ function App() {
             "Profile": true,
             "CancelBookings": true,
             "RejectedBookings": true,
+            "RejectedFrontdesk": true,
           };
           setPermissions(allPermissions);
           setNoPermissionsData(false);
@@ -199,7 +200,7 @@ function App() {
               "calendar": true,
               "profile": true,
               "history": true,
-              "RejectedBookings": true
+              "RejectedFrontdesk": true
             },
             customer: {
               "CustomerDashboard": true,
@@ -215,6 +216,7 @@ function App() {
               "calendar": true,
               "profile": true,
               "history": true,
+              "RejectedBookings": true
             }
           };
 
